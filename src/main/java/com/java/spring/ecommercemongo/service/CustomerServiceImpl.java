@@ -1,11 +1,13 @@
 package com.java.spring.ecommercemongo.service;
 
 import com.java.spring.ecommercemongo.document.Customer;
+import com.java.spring.ecommercemongo.dto.request.LoginRequestDto;
 import com.java.spring.ecommercemongo.dto.request.SignupRequestDto;
 import com.java.spring.ecommercemongo.dto.response.CustomerDto;
 import com.java.spring.ecommercemongo.enums.CustomerStatus;
 import com.java.spring.ecommercemongo.exceptions.CustomerExistsException;
 import com.java.spring.ecommercemongo.exceptions.CustomerNotFoundException;
+import com.java.spring.ecommercemongo.exceptions.InvalidCredentialsException;
 import com.java.spring.ecommercemongo.repository.AddressRepository;
 import com.java.spring.ecommercemongo.repository.CustomerRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,86 +25,145 @@ import java.util.Optional;
 public class CustomerServiceImpl implements CustomerService {
 
     private final CustomerRepository customerRepository;
-    private final AddressRepository addressRepository;
     private final ModelMapper modelMapper;
-
 
     @Override
     public CustomerDto save(SignupRequestDto signupRequestDto) throws CustomerExistsException {
+        //1. validate if customer exists
+        log.info("{} signuprequest {}",getClass().getSimpleName(),signupRequestDto);
 
-        // 1. validate if customer exists
-        log.info("{} signup request {}", getClass().getSimpleName(), signupRequestDto);
-
-        customerRepository.findByEmail(signupRequestDto.getEmail()).ifPresent(Customer -> {
-            throw new CustomerExistsException("Customer already exists with email: " + signupRequestDto.getEmail());
+        customerRepository.findByEmail(signupRequestDto.getEmail()).ifPresent(customer -> {
+            throw new CustomerExistsException("Customer already exists with this email: " + signupRequestDto.getEmail() );
         });
-
-        //2. Convert SignupRequest to Customer (document)
+        //2. Convert SignupRequest to Customer (Entity)
+        /*Customer customer = new Customer();
+        customer.setName(signupRequest.getName());
+        customer.setEmail(signupRequest.getEmail());
+        customer.setPassword(signupRequest.getPassword());
+        customer.setPhone(signupRequest.getPhone());
+        customer.setGender(signupRequest.getGender());*/
         Customer customer = modelMapper.map(signupRequestDto, Customer.class);
-
         //3. Save Customer
-        customer.setStatus(CustomerStatus.ACTIVE);
-        customer.setCreatedAt(LocalDateTime.now());
-
-        log.info("Saving customer {}", customer);
+        customer.setCreatedDate(LocalDateTime.now());
+        log.info("Saving customer {}",customer);
         Customer savedCustomer = customerRepository.save(customer);
-        log.info("Saved customer {}", savedCustomer);
-
+        log.info("Saved customer {}",savedCustomer);
         //4. Convert Customer to CustomerDto
+        // CustomerDto customerDto = CustomerDto.builder().id(savedCustomer.getId()).name(savedCustomer.getName()).email(savedCustomer.getEmail()).build();
         CustomerDto customerDto = modelMapper.map(savedCustomer, CustomerDto.class);
-        log.info("customerDto {}", customerDto);
-
+        log.info("CustomerDto {}",customerDto);
         return customerDto;
     }
 
     @Override
-    public Optional<CustomerDto> getByEmail(String email) throws CustomerNotFoundException {
-        Customer customer = customerRepository.findByEmail(email).orElseThrow(
-                () -> new CustomerNotFoundException("Customer not found with email: " + email));
+    public CustomerDto login(LoginRequestDto loginRequest) throws CustomerNotFoundException, InvalidCredentialsException {
+        Customer customer =
+                customerRepository
+                        .findByEmail(
+                                loginRequest.getEmail()
+                        )
+                        .orElseThrow(() ->
+                                new CustomerNotFoundException(
+                                        "Customer Not Found with this email :" + loginRequest.getEmail()
+                                )
+                        );
 
-        return Optional.ofNullable(modelMapper.map(customer, CustomerDto.class));
+        if(!customer.getPassword()
+                .equals(loginRequest.getPassword())) {
+
+            throw new InvalidCredentialsException(
+                    "Invalid Password"
+            );
+        }
+
+        return modelMapper.map(
+                customer,
+                CustomerDto.class
+        );
     }
 
     @Override
-    public CustomerDto getById(String id) {
-
-        Customer customer = customerRepository.findById(id)
-                .orElseThrow(() ->
-                        new CustomerNotFoundException("Customer Not Found"));
-
-        return modelMapper.map(customer, CustomerDto.class);
-    }
-
-    @Override
-    public List<CustomerDto> getAllCustomers() {
-        return customerRepository.findAll().stream()
+    public List<CustomerDto> getAll() {
+        return customerRepository
+                .findAll()
+                .stream()
                 .map(customer ->
-                        modelMapper.map(customer, CustomerDto.class))
+                        modelMapper.map(
+                                customer,
+                                CustomerDto.class
+                        )
+                )
                 .toList();
     }
 
     @Override
-    public CustomerDto update(String id, CustomerDto customerDto) {
+    public CustomerDto getById(String id) throws CustomerNotFoundException {
+        Customer customer =
+                customerRepository
+                        .findById(id)
+                        .orElseThrow(() ->
+                                new CustomerNotFoundException(
+                                        "Customer Not Found with this id : " + id
+                                )
+                        );
 
-        Customer existingCustomer = customerRepository.findById(id).orElseThrow(() ->
-                new CustomerNotFoundException("Customer not found with id: " + id));
+        return modelMapper.map(
+                customer,
+                CustomerDto.class
+        );
+    }
 
-        existingCustomer.setName(customerDto.getName());
-        existingCustomer.setEmail(customerDto.getEmail());
-        existingCustomer.setPhone(customerDto.getPhone());
+    @Override
+    public CustomerDto update(String id, Customer Customer) throws CustomerNotFoundException {
+        Customer existingCustomer =
+                customerRepository
+                        .findById(id)
+                        .orElseThrow(() ->
+                                new CustomerNotFoundException(
+                                        "Customer Not Found with id :" + id
+                                )
+                        );
 
-        existingCustomer.setAddresses(modelMapper.map(customerDto.getAddresses(), List.class));
+        existingCustomer.setName(
+                Customer.getName()
+        );
 
-        return modelMapper.map(customerRepository.save(existingCustomer), CustomerDto.class);
+        existingCustomer.setEmail(
+                Customer.getEmail()
+        );
+
+        existingCustomer.setPhone(
+                Customer.getPhone()
+        );
+
+        existingCustomer.setAddresses(
+                modelMapper.map(
+                        Customer.getAddresses(),
+                        List.class
+                )
+        );
+
+        Customer updatedCustomer =
+                customerRepository
+                        .save(existingCustomer);
+
+        return modelMapper.map(
+                updatedCustomer,
+                CustomerDto.class
+        );
     }
 
     @Override
     public void delete(String id) throws CustomerNotFoundException {
+        Customer customer =
+                customerRepository
+                        .findById(id)
+                        .orElseThrow(() ->
+                                new CustomerNotFoundException(
+                                        "Customer Not Found"
+                                )
+                        );
 
-        Customer customer = customerRepository.findById(id).orElseThrow(() ->
-                new CustomerNotFoundException("Customer not found with id: " + id));
         customerRepository.delete(customer);
     }
-
-
 }
